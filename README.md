@@ -18,6 +18,7 @@ Live web app: camera feed → face detection → age & emotion estimation, with 
 - 👤 Face detection (MediaPipe, full-range model)
 - 👥 Multiple faces at once
 - 🎂 Approximate age estimation (ONNX GoogleNet age model, 8 age buckets)
+- 🚻 Gender estimation (ONNX GoogleNet gender model)
 - 😊 Emotion estimation (ONNX FER+ model, 8 emotions)
 - 📊 Confidence scores for every prediction, live latency/FPS stats
 
@@ -79,6 +80,7 @@ Example response:
       "box": {"x": 182, "y": 94, "w": 128, "h": 128},
       "confidence": 0.93,
       "age": {"range": "25-32", "confidence": 0.61},
+      "gender": {"label": "female", "confidence": 0.73},
       "emotion": {"label": "happy", "confidence": 0.88}
     }
   ],

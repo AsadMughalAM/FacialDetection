@@ -17,6 +17,7 @@ except ImportError:  # pragma: no cover
 MODELS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models")
 
 AGE_BUCKETS = ["0-2", "4-6", "8-12", "15-20", "25-32", "38-43", "48-53", "60+"]
+GENDERS = ["male", "female"]
 EMOTIONS = ["neutral", "happy", "surprise", "sad", "angry", "disgust", "fear", "contempt"]
 
 
@@ -53,6 +54,23 @@ class AgeEstimator(_OnnxModel):
         probs = _softmax(scores)
         idx = int(np.argmax(probs))
         return AGE_BUCKETS[idx], float(probs[idx])
+
+
+class GenderEstimator(_OnnxModel):
+    def __init__(self):
+        super().__init__("gender_googlenet.onnx")
+
+    def predict(self, face_bgr: np.ndarray) -> tuple[str, float]:
+        """Returns (gender, confidence)."""
+        if not self.available:
+            return "?", 0.0
+        blob = cv2.resize(face_bgr, (224, 224)).astype(np.float32)
+        blob -= np.array([104.0, 117.0, 123.0], dtype=np.float32)  # Caffe BGR means
+        blob = blob.transpose(2, 0, 1)[np.newaxis]  # NCHW
+        scores = self.session.run(None, {self.input_name: blob})[0][0]
+        probs = _softmax(scores)
+        idx = int(np.argmax(probs))
+        return GENDERS[idx], float(probs[idx])
 
 
 class EmotionEstimator(_OnnxModel):

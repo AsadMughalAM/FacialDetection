@@ -11,7 +11,7 @@ from fastapi import FastAPI, File, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 
 from backend.detector import FaceDetector
-from backend.estimators import AgeEstimator, EmotionEstimator
+from backend.estimators import AgeEstimator, EmotionEstimator, GenderEstimator
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FRONTEND_DIR = os.path.join(ROOT, "frontend")
@@ -31,6 +31,7 @@ app.add_middleware(
 
 detector = FaceDetector(min_confidence=0.5)
 age_model = AgeEstimator()
+gender_model = GenderEstimator()
 emotion_model = EmotionEstimator()
 
 
@@ -54,12 +55,16 @@ def analyze_frame(frame_bgr: np.ndarray) -> dict:
             "box": {"x": face.x, "y": face.y, "w": face.w, "h": face.h},
             "confidence": round(face.confidence, 3),
             "age": None,
+            "gender": None,
             "emotion": None,
         }
         if crop.size > 0:
             if age_model.available:
                 age, age_conf = age_model.predict(crop)
                 entry["age"] = {"range": age, "confidence": round(age_conf, 3)}
+            if gender_model.available:
+                gender, g_conf = gender_model.predict(crop)
+                entry["gender"] = {"label": gender, "confidence": round(g_conf, 3)}
             if emotion_model.available:
                 emo, emo_conf = emotion_model.predict(crop)
                 entry["emotion"] = {"label": emo, "confidence": round(emo_conf, 3)}
@@ -69,7 +74,7 @@ def analyze_frame(frame_bgr: np.ndarray) -> dict:
         "count": len(results),
         "frame": {"w": frame_bgr.shape[1], "h": frame_bgr.shape[0]},
         "latency_ms": round((time.perf_counter() - start) * 1000, 1),
-        "models": {"age": age_model.available, "emotion": emotion_model.available},
+        "models": {"age": age_model.available, "gender": gender_model.available, "emotion": emotion_model.available},
     }
 
 
@@ -108,7 +113,7 @@ async def detect_image(file: UploadFile = File(...)):
 async def health():
     return {
         "status": "ok",
-        "models": {"age": age_model.available, "emotion": emotion_model.available},
+        "models": {"age": age_model.available, "gender": gender_model.available, "emotion": emotion_model.available},
     }
 
 

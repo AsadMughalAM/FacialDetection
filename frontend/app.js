@@ -4,9 +4,11 @@ const video = document.getElementById("video");
 const overlay = document.getElementById("overlay");
 const ctx = overlay.getContext("2d");
 const placeholder = document.getElementById("placeholder");
+const scanline = document.getElementById("scanline");
 const startBtn = document.getElementById("startBtn");
 const stopBtn = document.getElementById("stopBtn");
 const statusEl = document.getElementById("status");
+const statusText = statusEl.querySelector(".status-text");
 const faceCountEl = document.getElementById("faceCount");
 const latencyEl = document.getElementById("latency");
 const fpsEl = document.getElementById("fps");
@@ -25,9 +27,16 @@ let frameTimes = [];
 const JPEG_QUALITY = 0.7;
 const MAX_SEND_WIDTH = 640; // downscale before sending to keep latency low
 
-function setStatus(text, live = false) {
-  statusEl.textContent = text;
-  statusEl.classList.toggle("live", live);
+const EMOJI = {
+  neutral: "😐", happy: "😊", surprise: "😲", sad: "😢",
+  angry: "😠", disgust: "🤢", fear: "😨", contempt: "😒",
+};
+const GENDER_ICON = { male: "♂", female: "♀" };
+
+function setStatus(text, mode = "") {
+  statusText.textContent = text;
+  statusEl.classList.toggle("live", mode === "live");
+  statusEl.classList.toggle("error", mode === "error");
 }
 
 async function findBackend() {
@@ -50,7 +59,7 @@ async function start() {
   setStatus("connecting…");
   const backendHost = await findBackend();
   if (!backendHost) {
-    setStatus("backend not reachable — start the server on port 8000");
+    setStatus("backend not reachable — start the server on port 8000", "error");
     return;
   }
   try {
@@ -59,7 +68,7 @@ async function start() {
       audio: false,
     });
   } catch (err) {
-    setStatus("camera permission denied");
+    setStatus("camera permission denied", "error");
     return;
   }
   video.srcObject = stream;
@@ -75,7 +84,8 @@ async function start() {
   ws = new WebSocket(`${proto}://${backendHost}/ws`);
   ws.onopen = () => {
     running = true;
-    setStatus("live", true);
+    scanline.hidden = false;
+    setStatus("live", "live");
     sendFrame();
   };
   ws.onmessage = (ev) => {
@@ -83,8 +93,8 @@ async function start() {
     if (!data.error) render(data);
     if (running) sendFrame(); // ping-pong: next frame only after reply
   };
-  ws.onclose = () => { if (running) setStatus("connection lost"); };
-  ws.onerror = () => setStatus("connection error");
+  ws.onclose = () => { if (running) setStatus("connection lost", "error"); };
+  ws.onerror = () => setStatus("connection error", "error");
 }
 
 function stop() {
@@ -94,13 +104,14 @@ function stop() {
   video.srcObject = null;
   ctx.clearRect(0, 0, overlay.width, overlay.height);
   placeholder.hidden = false;
+  scanline.hidden = true;
   startBtn.disabled = false;
   stopBtn.disabled = true;
   setStatus("stopped");
   faceCountEl.textContent = "0";
   latencyEl.textContent = "–";
   fpsEl.textContent = "–";
-  faceList.innerHTML = '<p class="empty">No faces detected yet.</p>';
+  faceList.innerHTML = '<p class="empty">No faces detected yet — start the camera.</p>';
 }
 
 function sendFrame() {
@@ -125,6 +136,47 @@ function sendFrame() {
   );
 }
 
+/* Scanner-style corner brackets around a face box */
+function drawBrackets(x, y, w, h) {
+  const len = Math.min(w, h) * 0.22;
+  const r = 3;
+  ctx.strokeStyle = "#38e1c8";
+  ctx.lineWidth = 3.5;
+  ctx.lineCap = "round";
+  ctx.shadowColor = "rgba(56, 225, 200, 0.7)";
+  ctx.shadowBlur = 10;
+  const corners = [
+    [x, y, len, 0, 0, len],             // top-left
+    [x + w, y, -len, 0, 0, len],        // top-right
+    [x, y + h, len, 0, 0, -len],        // bottom-left
+    [x + w, y + h, -len, 0, 0, -len],   // bottom-right
+  ];
+  for (const [cx, cy, dx1, dy1, dx2, dy2] of corners) {
+    ctx.beginPath();
+    ctx.moveTo(cx + dx1, cy + dy1);
+    ctx.lineTo(cx, cy);
+    ctx.lineTo(cx + dx2, cy + dy2);
+    ctx.stroke();
+  }
+  ctx.shadowBlur = 0;
+}
+
+function drawLabelChip(text, x, y) {
+  const padX = 10, height = 26;
+  const tw = ctx.measureText(text).width + padX * 2;
+  const ry = Math.max(4, y - height - 8);
+  ctx.fillStyle = "rgba(5, 8, 16, 0.78)";
+  ctx.strokeStyle = "rgba(56, 225, 200, 0.5)";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.roundRect(x, ry, tw, height, 8);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = "#eef1fa";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, x + padX, ry + height / 2 + 1);
+}
+
 function render(data) {
   // fps tracking
   const now = performance.now();
@@ -133,55 +185,63 @@ function render(data) {
   fpsEl.textContent = (frameTimes.length / 2).toFixed(1);
   latencyEl.textContent = Math.round(now - lastSent);
   faceCountEl.textContent = data.count;
-  modelWarning.hidden = data.models.age && data.models.emotion;
+  modelWarning.hidden = data.models.age && data.models.emotion && data.models.gender;
 
   // scale factor: detection ran on the downscaled frame
   const sx = overlay.width / data.frame.w;
   const sy = overlay.height / data.frame.h;
 
   ctx.clearRect(0, 0, overlay.width, overlay.height);
-  ctx.lineWidth = 3;
-  ctx.font = "16px 'Segoe UI', sans-serif";
-  ctx.textBaseline = "bottom";
+  ctx.font = "600 15px 'Sora', 'Segoe UI', sans-serif";
 
   const cards = [];
   data.faces.forEach((face, i) => {
     const { x, y, w, h } = face.box;
     const rx = x * sx, ry = y * sy, rw = w * sx, rh = h * sy;
 
-    ctx.strokeStyle = "#3ddc84";
-    ctx.strokeRect(rx, ry, rw, rh);
+    drawBrackets(rx, ry, rw, rh);
 
     const parts = [];
-    if (face.age) parts.push(`age ${face.age.range}`);
-    if (face.emotion) parts.push(face.emotion.label);
-    const label = `#${i + 1} ${parts.join(" · ")} (${Math.round(face.confidence * 100)}%)`;
-
-    const tw = ctx.measureText(label).width + 10;
-    ctx.fillStyle = "rgba(0,0,0,0.65)";
-    ctx.fillRect(rx, ry - 24, tw, 24);
-    ctx.fillStyle = "#3ddc84";
-    ctx.fillText(label, rx + 5, ry - 4);
+    if (face.gender) parts.push(`${GENDER_ICON[face.gender.label] || ""} ${face.gender.label}`);
+    if (face.age) parts.push(face.age.range);
+    if (face.emotion) parts.push(`${EMOJI[face.emotion.label] || ""} ${face.emotion.label}`);
+    const label = parts.length ? parts.join("  ·  ") : `face ${Math.round(face.confidence * 100)}%`;
+    drawLabelChip(label, rx, ry);
 
     cards.push(faceCardHtml(i + 1, face));
   });
 
   faceList.innerHTML = cards.length
     ? cards.join("")
-    : '<p class="empty">No faces detected.</p>';
+    : '<p class="empty">No faces in frame right now.</p>';
+}
+
+function attrHtml(name, value, conf) {
+  const pct = Math.round(conf * 100);
+  return `<div class="attr">
+    <div class="attr-row">
+      <span class="k">${name}</span>
+      <span class="v">${value} <span class="pct">${pct}%</span></span>
+    </div>
+    <div class="bar"><i style="width:${pct}%"></i></div>
+  </div>`;
 }
 
 function faceCardHtml(n, face) {
-  const pct = (v) => `${Math.round(v * 100)}%`;
-  const age = face.age
-    ? `<div class="row"><span>Age</span><span class="val">${face.age.range} <span class="conf">${pct(face.age.confidence)}</span></span></div>`
-    : "";
-  const emo = face.emotion
-    ? `<div class="row"><span>Emotion</span><span class="val">${face.emotion.label} <span class="conf">${pct(face.emotion.confidence)}</span></span></div>`
-    : "";
+  const emoji = face.emotion ? (EMOJI[face.emotion.label] || "🙂") : "🙂";
+  let attrs = "";
+  if (face.gender) attrs += attrHtml("Gender", face.gender.label, face.gender.confidence);
+  if (face.age) attrs += attrHtml("Age", face.age.range + " yrs", face.age.confidence);
+  if (face.emotion) attrs += attrHtml("Emotion", face.emotion.label, face.emotion.confidence);
   return `<div class="face-card">
-    <div class="row"><span>Face #${n}</span><span class="conf">detect ${pct(face.confidence)}</span></div>
-    ${age}${emo}
+    <div class="face-emoji">${emoji}</div>
+    <div class="face-info">
+      <div class="face-title">
+        <span>Face #${n}</span>
+        <span class="det-conf">${Math.round(face.confidence * 100)}% match</span>
+      </div>
+      ${attrs}
+    </div>
   </div>`;
 }
 

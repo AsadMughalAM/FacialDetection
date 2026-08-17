@@ -15,6 +15,10 @@ MODELS = {
         "https://github.com/onnx/models/raw/main/validated/vision/body_analysis/age_gender/models/age_googlenet.onnx",
         "https://github.com/onnx/models/raw/master/vision/body_analysis/age_gender/models/age_googlenet.onnx",
     ],
+    "gender_googlenet.onnx": [
+        "https://github.com/onnx/models/raw/main/validated/vision/body_analysis/age_gender/models/gender_googlenet.onnx",
+        "https://github.com/onnx/models/raw/master/vision/body_analysis/age_gender/models/gender_googlenet.onnx",
+    ],
     "emotion-ferplus-8.onnx": [
         "https://github.com/onnx/models/raw/main/validated/vision/body_analysis/emotion_ferplus/model/emotion-ferplus-8.onnx",
         "https://github.com/onnx/models/raw/master/vision/body_analysis/emotion_ferplus/model/emotion-ferplus-8.onnx",
