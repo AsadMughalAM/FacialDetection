@@ -4,3 +4,4 @@ __pycache__/
 models/*.onnx
 models/*.part
 .env
+.claude/
