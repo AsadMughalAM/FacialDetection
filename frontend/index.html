@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Face Detection & Analysis</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>👤 Face Detection &amp; Analysis</h1>
+    <p class="subtitle">Live face detection with age &amp; emotion estimation</p>
+  </header>
+
+  <main>
+    <section class="video-panel">
+      <div class="video-wrap">
+        <video id="video" autoplay playsinline muted></video>
+        <canvas id="overlay"></canvas>
+        <div id="placeholder" class="placeholder"><span>Camera is off — press <b>Start Camera</b></span></div>
+      </div>
+      <div class="controls">
+        <button id="startBtn" class="btn primary">▶ Start Camera</button>
+        <button id="stopBtn" class="btn" disabled>⏹ Stop</button>
+        <span id="status" class="status">idle</span>
+      </div>
+    </section>
+
+    <aside class="results-panel">
+      <h2>Results</h2>
+      <div class="stats">
+        <div class="stat"><span id="faceCount">0</span><label>faces</label></div>
+        <div class="stat"><span id="latency">–</span><label>latency ms</label></div>
+        <div class="stat"><span id="fps">–</span><label>fps</label></div>
+      </div>
+      <div id="faceList" class="face-list">
+        <p class="empty">No faces detected yet.</p>
+      </div>
+      <div id="modelWarning" class="warning" hidden>
+        ⚠ Age/emotion models not loaded on the server.<br>
+        Run <code>python download_models.py</code> and restart.
+      </div>
+    </aside>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

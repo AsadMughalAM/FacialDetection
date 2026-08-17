@@ -1,0 +1,6 @@
+services:
+  - type: web
+    name: face-detection
+    runtime: docker
+    plan: starter
+    healthCheckPath: /api/health
