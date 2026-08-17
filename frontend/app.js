@@ -112,6 +112,7 @@ function stop() {
   latencyEl.textContent = "–";
   fpsEl.textContent = "–";
   faceList.innerHTML = '<p class="empty">No faces detected yet — start the camera.</p>';
+  history.length = 0;
 }
 
 function sendFrame() {
@@ -177,6 +178,29 @@ function drawLabelChip(text, x, y) {
   ctx.fillText(text, x + padX, ry + height / 2 + 1);
 }
 
+/* ---- temporal smoothing: majority vote over recent frames per face slot ---- */
+const HISTORY_LEN = 7;
+const history = []; // per face index: {gender: [], age: [], emotion: []}
+
+function smooth(slot, kind, pred) {
+  if (!pred) return null;
+  if (!history[slot]) history[slot] = { gender: [], age: [], emotion: [] };
+  const h = history[slot][kind];
+  h.push(pred);
+  if (h.length > HISTORY_LEN) h.shift();
+  // most frequent label wins; confidence = average conf of that label
+  const tally = {};
+  for (const p of h) {
+    const key = p.label || p.range;
+    (tally[key] = tally[key] || []).push(p.confidence);
+  }
+  let best = null, bestArr = [];
+  for (const [key, arr] of Object.entries(tally)) {
+    if (arr.length > bestArr.length) { best = key; bestArr = arr; }
+  }
+  return { label: best, confidence: bestArr.reduce((a, b) => a + b, 0) / bestArr.length };
+}
+
 function render(data) {
   // fps tracking
   const now = performance.now();
@@ -186,6 +210,7 @@ function render(data) {
   latencyEl.textContent = Math.round(now - lastSent);
   faceCountEl.textContent = data.count;
   modelWarning.hidden = data.models.age && data.models.emotion && data.models.gender;
+  history.length = data.faces.length; // drop history of vanished faces
 
   // scale factor: detection ran on the downscaled frame
   const sx = overlay.width / data.frame.w;
@@ -194,55 +219,83 @@ function render(data) {
   ctx.clearRect(0, 0, overlay.width, overlay.height);
   ctx.font = "600 15px 'Sora', 'Segoe UI', sans-serif";
 
-  const cards = [];
+  const smoothed = data.faces.map((face, i) => ({
+    confidence: face.confidence,
+    gender: smooth(i, "gender", face.gender),
+    age: smooth(i, "age", face.age),
+    emotion: smooth(i, "emotion", face.emotion),
+  }));
+
   data.faces.forEach((face, i) => {
     const { x, y, w, h } = face.box;
     const rx = x * sx, ry = y * sy, rw = w * sx, rh = h * sy;
-
     drawBrackets(rx, ry, rw, rh);
 
+    const s = smoothed[i];
     const parts = [];
-    if (face.gender) parts.push(`${GENDER_ICON[face.gender.label] || ""} ${face.gender.label}`);
-    if (face.age) parts.push(face.age.range);
-    if (face.emotion) parts.push(`${EMOJI[face.emotion.label] || ""} ${face.emotion.label}`);
+    if (s.gender) parts.push(`${GENDER_ICON[s.gender.label] || ""} ${s.gender.label}`);
+    if (s.age) parts.push(s.age.label);
+    if (s.emotion) parts.push(`${EMOJI[s.emotion.label] || ""} ${s.emotion.label}`);
     const label = parts.length ? parts.join("  ·  ") : `face ${Math.round(face.confidence * 100)}%`;
     drawLabelChip(label, rx, ry);
-
-    cards.push(faceCardHtml(i + 1, face));
   });
 
-  faceList.innerHTML = cards.length
-    ? cards.join("")
-    : '<p class="empty">No faces in frame right now.</p>';
+  updateFaceList(smoothed);
 }
 
-function attrHtml(name, value, conf) {
-  const pct = Math.round(conf * 100);
-  return `<div class="attr">
+/* ---- face cards: created once, values updated in place (no flicker) ---- */
+function cardTemplate(n) {
+  const attr = (kind, name) => `<div class="attr" data-kind="${kind}" hidden>
     <div class="attr-row">
       <span class="k">${name}</span>
-      <span class="v">${value} <span class="pct">${pct}%</span></span>
+      <span class="v"><span class="val"></span> <span class="pct"></span></span>
     </div>
-    <div class="bar"><i style="width:${pct}%"></i></div>
+    <div class="bar"><i></i></div>
   </div>`;
-}
-
-function faceCardHtml(n, face) {
-  const emoji = face.emotion ? (EMOJI[face.emotion.label] || "🙂") : "🙂";
-  let attrs = "";
-  if (face.gender) attrs += attrHtml("Gender", face.gender.label, face.gender.confidence);
-  if (face.age) attrs += attrHtml("Age", face.age.range + " yrs", face.age.confidence);
-  if (face.emotion) attrs += attrHtml("Emotion", face.emotion.label, face.emotion.confidence);
   return `<div class="face-card">
-    <div class="face-emoji">${emoji}</div>
+    <div class="face-emoji">🙂</div>
     <div class="face-info">
       <div class="face-title">
         <span>Face #${n}</span>
-        <span class="det-conf">${Math.round(face.confidence * 100)}% match</span>
+        <span class="det-conf"></span>
       </div>
-      ${attrs}
+      ${attr("gender", "Gender")}${attr("age", "Age")}${attr("emotion", "Emotion")}
     </div>
   </div>`;
+}
+
+function updateAttr(card, kind, pred, suffix = "") {
+  const el = card.querySelector(`.attr[data-kind="${kind}"]`);
+  if (!pred) { el.hidden = true; return; }
+  el.hidden = false;
+  const pct = Math.round(pred.confidence * 100);
+  el.querySelector(".val").textContent = pred.label + suffix;
+  el.querySelector(".pct").textContent = `${pct}%`;
+  el.querySelector(".bar i").style.width = `${pct}%`;
+}
+
+function updateFaceList(faces) {
+  if (!faces.length) {
+    if (!faceList.querySelector(".empty")) {
+      faceList.innerHTML = '<p class="empty">No faces in frame right now.</p>';
+    }
+    return;
+  }
+  const empty = faceList.querySelector(".empty");
+  if (empty) empty.remove();
+  while (faceList.children.length > faces.length) faceList.lastElementChild.remove();
+  while (faceList.children.length < faces.length) {
+    faceList.insertAdjacentHTML("beforeend", cardTemplate(faceList.children.length + 1));
+  }
+  faces.forEach((face, i) => {
+    const card = faceList.children[i];
+    card.querySelector(".face-emoji").textContent =
+      face.emotion ? (EMOJI[face.emotion.label] || "🙂") : "🙂";
+    card.querySelector(".det-conf").textContent = `${Math.round(face.confidence * 100)}% match`;
+    updateAttr(card, "gender", face.gender);
+    updateAttr(card, "age", face.age, " yrs");
+    updateAttr(card, "emotion", face.emotion);
+  });
 }
 
 startBtn.addEventListener("click", start);
