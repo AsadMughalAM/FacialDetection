@@ -228,7 +228,9 @@ function render(data) {
 
   data.faces.forEach((face, i) => {
     const { x, y, w, h } = face.box;
-    const rx = x * sx, ry = y * sy, rw = w * sx, rh = h * sy;
+    const rw = w * sx, rh = h * sy, ry = y * sy;
+    // video is mirrored via CSS, so mirror box x to match
+    const rx = overlay.width - x * sx - rw;
     drawBrackets(rx, ry, rw, rh);
 
     const s = smoothed[i];

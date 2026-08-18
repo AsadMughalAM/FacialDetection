@@ -147,6 +147,9 @@ main {
   object-fit: contain;
 }
 
+/* selfie-style mirror; box coordinates are mirrored in JS to match */
+#video { transform: scaleX(-1); }
+
 .placeholder {
   position: absolute;
   inset: 0;
